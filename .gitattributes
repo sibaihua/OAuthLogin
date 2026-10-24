@@ -1,0 +1,3 @@
+# 插件会被部署到 Linux 服务器，统一用 LF
+* text=auto eol=lf
+*.png binary
