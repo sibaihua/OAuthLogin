@@ -30,9 +30,9 @@ class Settings
     public static function defaults()
     {
         return [
-            // 司白画通行证（Cloudreve / OpenID Connect）
+            // OpenID Connect（Cloudreve 等）
             'passportEnable'       => '1',
-            'passportLabel'        => '司白画通行证',
+            'passportLabel'        => 'OpenID Connect',
             'passportIcon'         => 'https://cdn.sibh.cn/img/2026/07/6a57be4a036e9.png',
             'passportBase'         => 'https://pan.sibh.cn',
             'passportClientId'     => 'ecd1a1d0-d7e1-463d-9cae-1a7def1de83c',
@@ -85,6 +85,61 @@ class Settings
         }
 
         self::$cache = null;
+    }
+
+    /**
+     * 确保 Typecho 的个人配置占位行存在
+     *
+     * 插件实现了 personalConfig 时，Typecho 的 PersonalFormList 会读取 `_plugin:<插件名>` 这一行，
+     * 没有就抛「配置信息没有找到」，整个个人设置页 500。这里补一行空的占位数据。
+     */
+    public static function ensurePersonalRow()
+    {
+        static $done = false;
+
+        if ($done) {
+            return;
+        }
+
+        $done = true;
+
+        $name = '_plugin:' . self::PLUGIN;
+
+        // 一、数据库里补一行，此后的请求都不会再遇到缺行
+        try {
+            $db = Db::get();
+
+            $row = $db->fetchRow(
+                $db->select()->from('table.options')
+                    ->where('name = ?', $name)
+                    ->where('user = ?', 0)
+                    ->limit(1)
+            );
+
+            if (empty($row)) {
+                $db->query(
+                    $db->insert('table.options')->rows([
+                        'name'  => $name,
+                        'user'  => 0,
+                        'value' => serialize([]),
+                    ])
+                );
+            }
+        } catch (\Throwable $e) {
+            // 建行失败不阻断页面
+        }
+
+        // 二、本次请求的 Options 可能已在 Init 阶段读完数据（早于插件钩子），
+        // 把占位值补进内存，避免这一屏仍然 500
+        try {
+            $options = Options::alloc();
+
+            if (!isset($options->{$name})) {
+                $options->{$name} = serialize([]);
+            }
+        } catch (\Throwable $e) {
+            // 同样不阻断
+        }
     }
 
     /**

@@ -9,7 +9,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 }
 
 /**
- * 通用 OpenID Connect 提供方（默认对接司白画通行证 / Cloudreve）
+ * 通用 OpenID Connect 提供方（默认对接 Cloudreve）
  */
 class Oidc extends AbstractProvider
 {
@@ -29,7 +29,7 @@ class Oidc extends AbstractProvider
     {
         $label = (string) $this->settings->passportLabel;
 
-        return '' !== $label ? $label : '司白画通行证';
+        return '' !== $label ? $label : 'OpenID Connect';
     }
 
     public function icon()
