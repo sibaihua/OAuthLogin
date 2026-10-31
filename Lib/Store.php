@@ -102,11 +102,15 @@ class Store
             'nickname'      => self::cut((string) ($profile['name'] ?? ''), 100),
             'avatar'        => self::cut((string) ($profile['avatar'] ?? ''), 255),
             'email'         => self::cut((string) ($profile['email'] ?? ''), 150),
-            'access_token'  => self::cut((string) ($token['access_token'] ?? ''), 1024),
-            'refresh_token' => self::cut((string) ($token['refresh_token'] ?? ''), 1024),
-            'expires_at'    => (int) ($token['expires_at'] ?? 0),
             'last_login'    => $now,
         ];
+
+        // 没有拿到令牌时保留原值，避免把已存的令牌抹成空
+        if (!empty($token)) {
+            $rows['access_token']  = self::cut((string) ($token['access_token'] ?? ''), 1024);
+            $rows['refresh_token'] = self::cut((string) ($token['refresh_token'] ?? ''), 1024);
+            $rows['expires_at']    = (int) ($token['expires_at'] ?? 0);
+        }
 
         if ($existing) {
             $db->query($db->update(self::TABLE)->rows($rows)->where('id = ?', (int) $existing['id']));

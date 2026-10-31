@@ -34,6 +34,13 @@ class Handler
     private static $obLevel = 0;
 
     /**
+     * 本次流程的模式：login（登录）或 bind（在个人设置里绑定）
+     *
+     * @var string
+     */
+    private static $mode = 'login';
+
+    /**
      * 发起登录
      *
      * @throws \Exception
@@ -52,19 +59,30 @@ class Handler
         $provider = ProviderFactory::create($key, $settings);
         $state = bin2hex(random_bytes(16));
 
-        // 记录发起登录时所在的页面，登录成功后回到这里
-        $return = self::safeReturnUrl(self::decodeReturn(isset($_GET['return']) ? (string) $_GET['return'] : ''));
-        $referer = self::safeReturnUrl(isset($_SERVER['HTTP_REFERER']) ? (string) $_SERVER['HTTP_REFERER'] : '');
+        // 绑定流程：必须在已登录状态下发起，完成后固定回个人设置
+        $mode = (isset($_GET['mode']) && 'bind' === $_GET['mode']) ? 'bind' : 'login';
 
-        if ('' === $return) {
-            $return = $referer;
-        } elseif ('' !== $referer && self::isSiteRoot($return) && !self::isSiteRoot($referer)) {
-            // 主题的登录面板会跨页面复用：从首页进入文章后，面板里可能还留着首页时的链接，
-            // 此时来源页比链接里的 return 更可信
-            $return = $referer;
+        if ('bind' === $mode && !self::hasLogin()) {
+            throw new \Exception('绑定第三方账号前请先登录本站');
         }
 
-        Cookie::set(self::COOKIE, $key . '|' . $state . '|' . self::encodeReturn($return), 900);
+        self::$mode = $mode;
+
+        // 记录发起登录时所在的页面，登录成功后回到这里
+        $return = 'bind' === $mode ? '' : self::safeReturnUrl(self::decodeReturn(isset($_GET['return']) ? (string) $_GET['return'] : ''));
+        $referer = self::safeReturnUrl(isset($_SERVER['HTTP_REFERER']) ? (string) $_SERVER['HTTP_REFERER'] : '');
+
+        if ('bind' !== $mode) {
+            if ('' === $return) {
+                $return = $referer;
+            } elseif ('' !== $referer && self::isSiteRoot($return) && !self::isSiteRoot($referer)) {
+                // 主题的登录面板会跨页面复用：从首页进入文章后，面板里可能还留着首页时的链接，
+                // 此时来源页比链接里的 return 更可信
+                $return = $referer;
+            }
+        }
+
+        Cookie::set(self::COOKIE, $key . '|' . $state . '|' . self::encodeReturn($return) . '|' . $mode, 900);
 
         self::go($provider->authorizeUrl($state, self::redirectUri($settings)));
     }
@@ -87,7 +105,8 @@ class Handler
 
         Cookie::delete(self::COOKIE);
 
-        list($key, $expectedState, $returnCode) = array_pad(explode('|', $pending, 3), 3, '');
+        list($key, $expectedState, $returnCode, $mode) = array_pad(explode('|', $pending, 4), 4, '');
+        self::$mode = ('bind' === $mode) ? 'bind' : 'login';
 
         $givenState = isset($_GET['state']) ? (string) $_GET['state'] : '';
 
@@ -109,6 +128,10 @@ class Handler
 
         $profile = $provider->fetchProfile($code, $redirectUri);
 
+        if ('bind' === self::$mode) {
+            self::bindAccount($key, $profile);
+        }
+
         $user = Auth::resolve($key, $profile, $settings);
 
         Auth::commit((int) $user['uid'], 7 * 24 * 3600);
@@ -117,6 +140,41 @@ class Handler
         $target = self::safeReturnUrl(self::decodeReturn($returnCode));
 
         self::go('' !== $target ? $target : self::homeUrl($user));
+    }
+
+    /**
+     * 把第三方账号绑定到当前登录用户
+     *
+     * @param string $key
+     * @param array $profile
+     * @throws \Exception
+     */
+    private static function bindAccount($key, array $profile)
+    {
+        if (!self::hasLogin()) {
+            throw new \Exception('登录状态已失效，请重新登录后再绑定');
+        }
+
+        $user = User::alloc();
+        $uid = (int) $user->uid;
+        $openid = (string) $profile['id'];
+
+        $bound = Store::findByOpenid($key, $openid);
+
+        if (!empty($bound['uid']) && (int) $bound['uid'] !== $uid) {
+            throw new \Exception('该第三方账号已绑定到其他用户，请先在那边解绑');
+        }
+
+        foreach (Store::findByUid($uid) as $row) {
+            if ($row['provider'] === $key && (string) $row['openid'] !== $openid) {
+                throw new \Exception('当前账号已绑定另一个' . self::providerLabel($key) . '账号，请先解绑');
+            }
+        }
+
+        Store::bind($uid, $key, $profile);
+
+        Profile::notice('已绑定「' . self::providerLabel($key) . '」', 'success');
+        self::go(Profile::url());
     }
 
     /**
@@ -135,6 +193,9 @@ class Handler
         }
 
         Cookie::delete(self::COOKIE);
+
+        $parts = explode('|', $pending, 4);
+        self::$mode = (isset($parts[3]) && 'bind' === $parts[3]) ? 'bind' : 'login';
 
         $map = [
             'access_denied'             => '你取消了授权，登录未完成',
@@ -176,7 +237,7 @@ class Handler
 
         $options = Options::alloc();
         $base = rtrim((string) $options->pluginUrl, '/') . '/OAuthLogin';
-        $version = '?v=1.3.0';
+        $version = '?v=1.4.0';
 
         $payload = json_encode(
             ['providers' => $items],
@@ -607,6 +668,21 @@ JS;
     }
 
     /**
+     * 提供方显示名称
+     *
+     * @param string $key
+     * @return string
+     */
+    private static function providerLabel($key)
+    {
+        try {
+            return ProviderFactory::create($key, Settings::load())->label();
+        } catch (\Throwable $e) {
+            return (string) $key;
+        }
+    }
+
+    /**
      * 来源页编码：base64url，避免与 Cookie 分隔符冲突
      *
      * @param string $url
@@ -663,6 +739,12 @@ JS;
             $message = '第三方登录失败，请稍后再试';
         }
 
+        // 绑定流程出错就回个人设置，不要把用户扔到登录页
+        if ('bind' === self::$mode) {
+            Profile::notice('绑定失败：' . $message, 'error');
+            self::go(Profile::url());
+        }
+
         $url = $options->adminUrl . 'login.php?oauth_error=' . rawurlencode($message);
 
         self::go($url);
@@ -678,7 +760,7 @@ JS;
     {
         $map = [
             'Invalid or expired authorization code' => '授权已过期或已使用，请重新点击第三方登录',
-            'Login required'                        => '请先在通行证中登录后再授权',
+            'Login required'                        => '请先在 OpenID Connect 提供方登录后再授权',
             'Unauthorized'                          => '授权未通过，请重新登录',
             'ClientID cannot be empty'              => '应用配置有误：缺少客户端 ID',
             'Invalid redirect_uri'                  => '回调地址与平台登记不一致，请检查插件设置',

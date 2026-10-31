@@ -28,7 +28,7 @@ cd usr/plugins && git clone https://github.com/sibaihua/OAuthLogin.git OAuthLogi
 
 | 方式 | 协议 | 说明 |
 | --- | --- | --- |
-| 司白画通行证 | OpenID Connect | 对接 `pan.sibh.cn`（Cloudreve），自动读取 `/.well-known/openid-configuration` |
+| OpenID Connect | OIDC | 通用实现，自动读取 `/.well-known/openid-configuration`；默认对接 Cloudreve（`pan.sibh.cn`） |
 | QQ 互联 | OAuth 2.0 | `graph.qq.com`，scope `get_user_info` |
 | GitHub | OAuth 2.0 | `github.com/login/oauth` + `api.github.com/user` |
 | Gitee | OAuth 2.0 | `gitee.com/oauth` + `api/v5/user` |
@@ -37,11 +37,12 @@ cd usr/plugins && git clone https://github.com/sibaihua/OAuthLogin.git OAuthLogi
 
 ```
 OAuthLogin/
-├── Plugin.php              插件入口：启用/停用、配置表单、两个钩子
+├── Plugin.php              插件入口：启用/停用、配置表单、三个钩子
 ├── Lib/
 │   ├── Settings.php        配置读写与默认值
 │   ├── Handler.php         登录发起、回调处理、登录页资源注入
 │   ├── Auth.php            账号关联/自动注册/登录态写入
+│   ├── Profile.php         后台个人设置里的绑定/解绑面板
 │   ├── Store.php           绑定表 oauth_accounts 的读写
 │   ├── Http.php            curl 封装
 │   └── ProviderFactory.php 提供方工厂
@@ -79,6 +80,18 @@ OAuthLogin/
 
 启用时创建 `typecho_oauth_accounts`（`provider` + `openid` 唯一索引），停用插件不删数据。
 
+## 已有账号绑定 / 解绑
+
+后台「个人设置」页面的「第三方账号」板块（密码修改下方）列出所有已启用的登录方式：
+
+- **未绑定**：点「绑定」，跳转到对应平台授权，回来即完成绑定。绑定要求当前已登录，
+  且同一个第三方账号不能同时绑定到两个本站用户。
+- **已绑定**：显示昵称 / 邮箱 / 绑定时间，点「解绑」即可解除。
+  解绑后只能用本站用户名密码登录，所以按钮会先确认一次。
+- 解绑请求带 CSRF 令牌，仅能解除自己的绑定。
+
+绑定与登录共用同一套回调地址，不需要在第三方平台额外登记。
+
 ## 注意
 
 - 回调地址必须与第三方平台登记的一字不差。
@@ -86,6 +99,14 @@ OAuthLogin/
 - 自动注册的默认用户组建议保持「贡献者」，设为管理员等于对外开放后台权限。
 
 ## 更新记录
+
+### 1.4.0
+- 新增：后台「个人设置」里可以**绑定 / 解绑**第三方账号（已有账号不用等自动注册）。
+- 绑定时校验：同一第三方账号不能绑定到多个本站用户，同一本站用户同一平台只保留一个绑定。
+- 解绑走表单 POST + CSRF 令牌，并有二次确认。
+- 后台板块标题改为「第三方账号登录」，文案统一为「OpenID Connect」，不再带站点专属名称。
+- 修复：启用本插件后打开「个人设置」偶发 500（`插件OAuthLogin的配置信息没有找到`），
+  现在会自动补上 Typecho 需要的 `_plugin:OAuthLogin` 占位行。
 
 ### 1.3.0
 - 修复：在文章页点登录、完成后却回到首页。原因是主题的登录面板跨页面复用（PJAX），

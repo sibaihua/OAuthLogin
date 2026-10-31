@@ -8,6 +8,7 @@ use Typecho\Widget\Helper\Form;
 use Typecho\Widget\Helper\Form\Element;
 use Typecho\Widget\Helper\Layout;
 use TypechoPlugin\OAuthLogin\Lib\Handler;
+use TypechoPlugin\OAuthLogin\Lib\Profile;
 use TypechoPlugin\OAuthLogin\Lib\Settings;
 use TypechoPlugin\OAuthLogin\Lib\Store;
 
@@ -16,11 +17,11 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
 }
 
 /**
- * 为博客接入第三方账号登录（OAuth 2.0 / OpenID Connect），支持司白画通行证、QQ 互联、GitHub、Gitee
+ * 为博客接入第三方账号登录（OAuth 2.0 / OIDC），支持 OpenID Connect、QQ 互联、GitHub、Gitee
  *
- * @package OAuthLogin
+ * @package 第三方账号登录
  * @author 司白画
- * @version 1.3.0
+ * @version 1.4.0
  * @link https://blog.sibh.cn
  */
 class Plugin implements PluginInterface
@@ -34,10 +35,12 @@ class Plugin implements PluginInterface
     {
         Store::install();
         Settings::ensureDefaults();
+        Settings::ensurePersonalRow();
 
         BasePlugin::factory('index.php')->begin = __CLASS__ . '::onIndexBegin';
         BasePlugin::factory('index.php')->end = __CLASS__ . '::onIndexEnd';
         BasePlugin::factory('admin/header.php')->header = __CLASS__ . '::onAdminHeader';
+        BasePlugin::factory('admin/common.php')->begin = __CLASS__ . '::onAdminCommon';
 
         return _t('第三方登录已启用，请到「设置」中确认应用凭据与回调地址。');
     }
@@ -72,13 +75,13 @@ class Plugin implements PluginInterface
         );
         $form->addItem($tip);
 
-        self::configGroup($form, _t('一、司白画通行证（OpenID Connect）'));
+        self::configGroup($form, _t('一、OpenID Connect'));
 
         $passportEnable = new Element\Radio(
             'passportEnable',
             ['1' => _t('启用'), '0' => _t('关闭')],
             '1',
-            _t('启用通行证登录'),
+            _t('启用 OpenID Connect 登录'),
             _t('使用 pan.sibh.cn 的统一账号登录本博客')
         );
         $form->addInput($passportEnable);
@@ -86,7 +89,7 @@ class Plugin implements PluginInterface
         $passportLabel = new Element\Text(
             'passportLabel',
             null,
-            _t('司白画通行证'),
+            _t('OpenID Connect'),
             _t('按钮文字'),
             _t('登录页上显示的名称')
         );
@@ -252,12 +255,22 @@ class Plugin implements PluginInterface
     }
 
     /**
-     * 用户个人配置（暂无）
+     * 个人设置：第三方账号绑定面板
      *
      * @param Form $form
+     * @return string 可见的最低用户组
      */
     public static function personalConfig(Form $form)
     {
+        // Typecho 的 personalForm() 会在本方法之后读取 _plugin:<插件名> 这一行，
+        // 缺行会抛「配置信息没有找到」，这里先补上占位数据
+        Settings::ensurePersonalRow();
+
+        $panel = new Layout('div', ['class' => 'oauth-personal-panel']);
+        $panel->html(Profile::panel());
+        $form->addItem($panel);
+
+        return 'subscriber';
     }
 
     /**
@@ -324,6 +337,23 @@ class Plugin implements PluginInterface
     public static function onIndexEnd($unused = null)
     {
         Handler::bufferEnd();
+    }
+
+    /**
+     * 后台公共钩子：处理个人设置里的解绑提交
+     *
+     * @param mixed $unused
+     */
+    public static function onAdminCommon($unused = null)
+    {
+        // 进入后台就先确保个人设置里的占位行存在（Options 在钩子之后才加载）
+        Settings::ensurePersonalRow();
+
+        try {
+            Profile::handleRequest();
+        } catch (\Throwable $e) {
+            // 静默失败，避免影响后台其它页面
+        }
     }
 
     /**
