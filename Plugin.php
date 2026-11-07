@@ -21,7 +21,7 @@ if (!defined('__TYPECHO_ROOT_DIR__')) {
  *
  * @package 第三方账号登录
  * @author 司白画
- * @version 1.4.0
+ * @version 1.5.0
  * @link https://blog.sibh.cn
  */
 class Plugin implements PluginInterface
@@ -193,12 +193,34 @@ class Plugin implements PluginInterface
 
         self::configGroup($form, _t('五、登录与账号策略'));
 
+        $followHost = new Element\Radio(
+            'followHost',
+            ['1' => _t('跟随'), '0' => _t('固定')],
+            '1',
+            _t('登录链接跟随当前访问域名'),
+            _t('开启后，前台与后台的第三方登录链接、登录后的回跳地址、回调地址都使用访客当前访问的域名；'
+                . '关闭则统一使用上面的站点地址（<code>设置 → 基本设置</code> 里的站点地址）')
+        );
+        $form->addInput($followHost);
+
+        $extraHosts = new Element\Textarea(
+            'extraHosts',
+            null,
+            '',
+            _t('额外允许的域名'),
+            _t('每行一个，可带 <code>https://</code>，例如 <code>blog.sibh.cn</code>。'
+                . '只有站点地址本身和这里列出的域名会被跟随，防止 Host 头被伪造后把用户带去陌生站点；'
+                . '在提供方那边，这些域名的回调地址也要逐一登记')
+        );
+        $form->addInput($extraHosts);
+
         $redirectUri = new Element\Text(
             'redirectUri',
             null,
             '',
             _t('回调地址'),
-            _t('必须与第三方平台登记的完全一致。站内回调走首页，默认 <code>https://blog.sibh.cn/</code>')
+            _t('必须与第三方平台登记的完全一致。留空时按当前访问域名自动生成（<code>https://当前域名/</code>）；'
+                . '填写后若开启了「跟随访问域名」，只替换其中的域名部分，路径保持不变')
         );
         $form->addInput($redirectUri);
 

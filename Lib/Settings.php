@@ -56,6 +56,8 @@ class Settings
 
             // 通用
             'redirectUri'   => '',
+            'followHost'    => '1',
+            'extraHosts'    => '',
             'showOnLogin'   => '1',
             'showOnFront'   => '1',
             'emailMatch'    => '1',
@@ -172,27 +174,9 @@ class Settings
             // 未配置过时使用默认值
         }
 
-        if (empty($data['redirectUri'])) {
-            $data['redirectUri'] = self::guessRedirectUri();
-        }
-
         self::$cache = new Config($data);
 
         return self::$cache;
-    }
-
-    /**
-     * 推断回调地址（站点根）
-     *
-     * @return string
-     */
-    public static function guessRedirectUri()
-    {
-        try {
-            return rtrim(Options::alloc()->siteUrl, '/') . '/';
-        } catch (\Throwable $e) {
-            return '/';
-        }
     }
 
     /**

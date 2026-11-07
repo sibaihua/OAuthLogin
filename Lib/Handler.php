@@ -236,8 +236,8 @@ class Handler
         }
 
         $options = Options::alloc();
-        $base = rtrim((string) $options->pluginUrl, '/') . '/OAuthLogin';
-        $version = '?v=1.4.0';
+        $base = rtrim(Url::rewrite((string) $options->pluginUrl), '/') . '/OAuthLogin';
+        $version = '?v=1.5.0';
 
         $payload = json_encode(
             ['providers' => $items],
@@ -259,9 +259,6 @@ class Handler
     {
         $settings = Settings::load();
         $providers = ProviderFactory::enabled($settings);
-        $options = Options::alloc();
-        $siteUrl = rtrim($options->siteUrl, '/');
-
         $extra = '';
 
         if ('' !== (string) $returnUrl) {
@@ -273,7 +270,8 @@ class Handler
             $items[] = [
                 'key'   => $provider->key(),
                 'label' => $provider->label(),
-                'href'  => $siteUrl . '/?oauth=login&provider=' . rawurlencode($provider->key()) . $extra,
+                // 用站内相对地址：浏览器会按当前域名解析，站点绑定多个域名时不会被带回主域名
+                'href'  => Url::path('?oauth=login&provider=' . rawurlencode($provider->key()) . $extra),
                 'icon'  => $provider->icon(),
                 'svg'   => $provider->svg(),
                 'color' => $provider->color(),
@@ -556,9 +554,7 @@ JS;
      */
     public static function redirectUri(Config $settings)
     {
-        $uri = trim((string) $settings->redirectUri);
-
-        return '' !== $uri ? $uri : Settings::guessRedirectUri();
+        return Url::redirectUri((string) $settings->redirectUri);
     }
 
     /**
@@ -569,14 +565,13 @@ JS;
      */
     private static function homeUrl(array $user)
     {
-        $options = Options::alloc();
         $staff = ['administrator', 'editor', 'contributor'];
 
         if (in_array((string) $user['group'], $staff, true)) {
-            return $options->adminUrl;
+            return Url::admin();
         }
 
-        return $options->siteUrl;
+        return Url::base();
     }
 
     /**
@@ -586,8 +581,6 @@ JS;
      */
     private static function currentUrl()
     {
-        $options = Options::alloc();
-
         $uri = isset($_SERVER['REQUEST_URI']) ? (string) $_SERVER['REQUEST_URI'] : '';
 
         if ('' === $uri) {
@@ -599,7 +592,7 @@ JS;
             return '';
         }
 
-        return rtrim((string) $options->siteUrl, '/') . $uri;
+        return Url::base() . $uri;
     }
 
     /**
@@ -616,12 +609,9 @@ JS;
             return '';
         }
 
-        $options = Options::alloc();
-        $site = rtrim((string) $options->siteUrl, '/');
-
         // 站内相对路径（排除协议相对地址 //host）
         if ('/' === substr($raw, 0, 1) && '//' !== substr($raw, 0, 2)) {
-            $raw = $site . $raw;
+            $raw = Url::base() . $raw;
         }
 
         $parts = parse_url($raw);
@@ -634,9 +624,8 @@ JS;
             return '';
         }
 
-        $siteHost = strtolower((string) parse_url($site, PHP_URL_HOST));
-
-        if ('' === $siteHost || strtolower((string) $parts['host']) !== $siteHost) {
+        // 只允许站点自身以及设置里额外列出的域名，避免 Host 被伪造后变成开放重定向
+        if (!Url::trusted((string) $parts['host'])) {
             return '';
         }
 
@@ -651,7 +640,8 @@ JS;
             return '';
         }
 
-        return $raw;
+        // 换成本次访问的域名，登录态才不会因为跨域名而丢失
+        return Url::rewrite($raw);
     }
 
     /**
@@ -662,9 +652,17 @@ JS;
      */
     private static function isSiteRoot($url)
     {
-        $site = rtrim((string) Options::alloc()->siteUrl, '/');
+        $url = rtrim((string) $url, '/');
 
-        return rtrim((string) $url, '/') === $site;
+        foreach ([Url::base(), (string) Options::alloc()->siteUrl] as $candidate) {
+            $candidate = rtrim((string) $candidate, '/');
+
+            if ('' !== $candidate && $url === $candidate) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -732,7 +730,6 @@ JS;
      */
     public static function fail($message)
     {
-        $options = Options::alloc();
         $message = self::humanize(trim((string) $message));
 
         if ('' === $message) {
@@ -745,7 +742,7 @@ JS;
             self::go(Profile::url());
         }
 
-        $url = $options->adminUrl . 'login.php?oauth_error=' . rawurlencode($message);
+        $url = Url::admin('login.php') . '?oauth_error=' . rawurlencode($message);
 
         self::go($url);
     }

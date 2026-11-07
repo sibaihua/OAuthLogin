@@ -27,7 +27,8 @@ class Profile
      */
     public static function url()
     {
-        return Options::alloc()->adminUrl . 'profile.php';
+        // 域名跟随当前访问，站点绑定多个域名时不会把用户甩到另一个域名
+        return Url::admin('profile.php');
     }
 
     /**
@@ -158,11 +159,8 @@ class Profile
             $bound[$row['provider']] = $row;
         }
 
-        $site = rtrim((string) Options::alloc()->siteUrl, '/');
-
         $html = self::style();
         $html .= '<div class="oauth-bind">';
-
         foreach ($providers as $provider) {
             $key = $provider->key();
             $row = isset($bound[$key]) ? $bound[$key] : null;
@@ -210,7 +208,8 @@ class Profile
                     . ' onclick="return confirm(\'' . self::esc(_t('确定解绑这个账号吗？解绑后需要改用用户名密码登录。')) . '\');">'
                     . self::esc(_t('解绑')) . '</button>';
             } else {
-                $href = $site . '/?oauth=login&provider=' . rawurlencode($key) . '&mode=bind';
+                // 相对地址：跟着当前访问的域名走
+                $href = Url::path('?oauth=login&provider=' . rawurlencode($key) . '&mode=bind');
                 $html .= '<a class="btn primary" href="' . self::esc($href) . '">' . self::esc(_t('绑定')) . '</a>';
             }
 
